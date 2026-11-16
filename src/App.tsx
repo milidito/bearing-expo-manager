@@ -12,7 +12,11 @@ import { SupplierList } from './screens/SupplierList';
 import { match, navigate, useRoute } from './router';
 import { ToastHost } from './ui/components';
 import { SaveSheetHost } from './ui/saveSheet';
-import { useOnline } from './ui/hooks';
+import { useEffect, useState } from 'react';
+import { syncRunner, VIEWER_FLAG, isViewerFlag } from './sync/runner';
+import { useOnline, useSyncStatus } from './ui/hooks';
+import { checkIsViewer, wipeLocalData } from './viewer/api';
+import { ViewerApp } from './viewer/ViewerApp';
 
 function Screen() {
   const r = useRoute();
@@ -64,8 +68,61 @@ function Nav() {
   );
 }
 
+/**
+ * Decides between the normal app (owner) and the view-only app (an account the owner shared with).
+ * The decision comes from the server (table expo_viewers); a local flag only remembers it so an
+ * offline launch shows the view-only screen instead of the owner app.
+ */
+function useViewerMode(): { viewer: boolean; email: string | null } {
+  const st = useSyncStatus();
+  const [viewer, setViewer] = useState(isViewerFlag());
+  useEffect(() => {
+    const client = syncRunner.remote?.client;
+    if (!client) return;
+    if (!st.email) {
+      if (st.state === 'signed_out' && isViewerFlag()) {
+        localStorage.removeItem(VIEWER_FLAG);
+        setViewer(false);
+      }
+      return;
+    }
+    if (!navigator.onLine) return;
+    let cancelled = false;
+    checkIsViewer(client)
+      .then(async (isV) => {
+        if (cancelled) return;
+        if (isV) {
+          localStorage.setItem(VIEWER_FLAG, '1');
+          await wipeLocalData();
+        } else localStorage.removeItem(VIEWER_FLAG);
+        setViewer(isV);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [st.email, st.state]);
+  return { viewer, email: st.email };
+}
+
 export function App() {
   const online = useOnline();
+  const { viewer, email } = useViewerMode();
+  if (viewer && syncRunner.remote) {
+    return (
+      <ViewerApp
+        client={syncRunner.remote.client}
+        email={email ?? ''}
+        onSignOut={async () => {
+          await syncRunner.remote?.client.auth.signOut();
+          localStorage.removeItem(VIEWER_FLAG);
+          await syncRunner.refresh();
+          location.hash = '#/';
+          location.reload();
+        }}
+      />
+    );
+  }
   return (
     <div className="app">
       {!online && (

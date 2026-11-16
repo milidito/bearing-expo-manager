@@ -219,3 +219,15 @@ ol, ul { padding-left: 20px; margin: 0; } li { margin-bottom: 6px; }
 .capture-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .capture-grid.cols-2 .capture-btn { min-height: 86px; font-size: 15px; }
 .contact-ico.whatsapp { background: #25d366; color: #fff; }
+/* ---------- view-only mode ---------- */
+body.viewer-mode, body.viewer-mode * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
+body.viewer-mode canvas, body.viewer-mode img { pointer-events: auto; -webkit-user-drag: none; }
+.viewer-app main { padding-bottom: 24px; }
+.v-watermark { position: fixed; inset: 0; z-index: 40; pointer-events: none; background-repeat: repeat; }
+.v-photo { position: relative; display: inline-flex; align-items: center; justify-content: center; background: #eef1f3; border-radius: 10px; overflow: hidden; flex: 0 0 auto; }
+.v-photo canvas { display: block; }
+.v-photo-msg { position: absolute; font-size: 12px; color: var(--muted); }
+.v-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; font: inherit; color: var(--ink); }
+.v-thumb { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.viewer .v-photo { background: transparent; }
+@media print { body.viewer-mode * { visibility: hidden !important; } body.viewer-mode::after { content: 'Printing is disabled in view-only mode'; visibility: visible; } }

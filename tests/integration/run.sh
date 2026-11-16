@@ -13,7 +13,14 @@ su postgres -c "psql -v ON_ERROR_STOP=1 -q -d $DB -f tests/integration/supabase-
 # apply the schema twice to prove it is idempotent (safe to re-run in the Supabase SQL editor)
 su postgres -c "psql -v ON_ERROR_STOP=1 -q -d $DB -f supabase/schema-expo.sql" >/dev/null
 su postgres -c "psql -v ON_ERROR_STOP=1 -q -d $DB -f supabase/schema-expo.sql" >/dev/null
-echo "schema.sql applied twice OK"
+echo "schema-expo.sql applied twice OK"
+# view-only sharing: database-level security checks on a separate database (owner / viewer / stranger)
+su postgres -c "psql -q -c 'drop database if exists ${DB}_sec' -c 'create database ${DB}_sec'" >/dev/null
+su postgres -c "psql -v ON_ERROR_STOP=1 -q -d ${DB}_sec -f tests/integration/supabase-shim.sql" >/dev/null 2>&1
+# include the Yiwu schema (if available next to this repo) to test both apps in one project
+[ -f ../yiwu-supplier-manager/supabase/schema.sql ] && su postgres -c "psql -v ON_ERROR_STOP=1 -q -d ${DB}_sec -f ../yiwu-supplier-manager/supabase/schema.sql" >/dev/null 2>&1
+su postgres -c "psql -v ON_ERROR_STOP=1 -q -d ${DB}_sec -f supabase/schema-expo.sql" >/dev/null 2>&1
+su postgres -c "psql -v ON_ERROR_STOP=1 -q -At -d ${DB}_sec -f tests/integration/viewer-security.sql" 2>&1 | grep "VIEWER SECURITY"
 
 cat > /tmp/ysm-postgrest.conf <<CONF
 db-uri = "postgres://authenticator:authpw@127.0.0.1:5432/$DB"

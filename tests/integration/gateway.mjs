@@ -10,8 +10,14 @@ const PGRST = process.env.PGRST_URL || 'http://127.0.0.1:3010';
 const USERS = {
   'milad@example.com': { id: 'aaaaaaaa-0000-4000-8000-000000000001', pw: 'pass-milad-123' },
   'other@example.com': { id: 'bbbbbbbb-0000-4000-8000-000000000002', pw: 'pass-other-123' },
+  'viewer@example.com': { id: 'cccccccc-0000-4000-8000-000000000003', pw: 'pass-viewer-123' },
 };
 const files = new Map();
+// Mirror the storage RLS policies by asking the database (same SQL functions as in production).
+async function rpc(fn, auth, body = {}) {
+  const r = await fetch(`${PGRST}/rpc/${fn}`, { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return r.ok ? r.json() : false;
+}
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 function sign(payload) {
   const h = b64({ alg: 'HS256', typ: 'JWT' }), p = b64(payload);
@@ -63,9 +69,11 @@ http.createServer(async (req, res) => {
       if (!c) return json(res, 400, { statusCode: '403', error: 'Unauthorized', message: 'not signed in' });
       if (url.pathname.startsWith('/storage/v1/object/list/')) {
         const { prefix = '' } = JSON.parse(buf.toString() || '{}');
-        if (prefix.split('/')[0] !== c.sub) return json(res, 200, []);
-        const items = [...files.entries()]
-          .filter(([k]) => k.startsWith(prefix + '/') && !k.slice(prefix.length + 1).includes('/'))
+        const own = prefix.split('/')[0] === c.sub;
+        const entries = [...files.entries()].filter(([k]) => k.startsWith(prefix + '/') && !k.slice(prefix.length + 1).includes('/'));
+        const allowed = [];
+        for (const e of entries) if (own || (await rpc('expo_viewer_can_read', req.headers.authorization, { object_name: e[0] }))) allowed.push(e);
+        const items = allowed
           .map(([k, f]) => ({ name: k.slice(prefix.length + 1), id: crypto.randomUUID(), created_at: f.at, metadata: { size: f.data.length } }))
           .sort((a, b) => b.name.localeCompare(a.name));
         return json(res, 200, items);
@@ -78,8 +86,11 @@ http.createServer(async (req, res) => {
       }
       const [bucket, ...parts] = rest.split('/');
       const path = decodeURIComponent(parts.join('/'));
-      if (bucket !== 'expo-photos' || path.split('/')[0] !== c.sub) return json(res, 400, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+      const denied = () => json(res, 400, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+      if (bucket !== 'expo-photos') return denied();
+      const ownFolder = path.split('/')[0] === c.sub;
       if (req.method === 'POST' || req.method === 'PUT') {
+        if (!ownFolder || (await rpc('expo_is_viewer', req.headers.authorization)) === true) return denied();
         if (files.has(path) && req.headers['x-upsert'] !== 'true') return json(res, 400, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
         let data = buf, type = req.headers['content-type'];
         const m = /multipart\/form-data;\s*boundary=(.+)$/.exec(type || '');
@@ -98,6 +109,7 @@ http.createServer(async (req, res) => {
         return json(res, 200, { Key: `${bucket}/${path}`, Id: crypto.randomUUID() });
       }
       if (req.method === 'GET') {
+        if (!ownFolder && (await rpc('expo_viewer_can_read', req.headers.authorization, { object_name: path })) !== true) return json(res, 400, { statusCode: '404', error: 'not_found', message: 'Object not found' });
         const f = files.get(path);
         if (!f) return json(res, 400, { statusCode: '404', error: 'not_found', message: 'Object not found' });
         res.writeHead(200, { 'content-type': f.type || 'application/octet-stream', ...cors }); return res.end(f.data);

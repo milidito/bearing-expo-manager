@@ -16,6 +16,8 @@ export class SupabaseRemote implements Remote {
   static create(url: string, anonKey: string, storageKey = 'bem-sb-auth') {
     const client = createClient(url, anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, storageKey },
+      // never let the browser's HTTP cache keep copies of API responses or photos
+      global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
     });
     return new SupabaseRemote(client);
   }

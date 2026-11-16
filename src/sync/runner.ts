@@ -152,6 +152,8 @@ class Runner {
   }
 
   async syncNow(): Promise<SyncResult | null> {
+    // view-only accounts never sync (they read shared data online only)
+    if (isViewerFlag()) return null;
     await this.refresh();
     if (!this.engine || !this.remote) return null;
     if (this.status.state === 'signed_out') return null;
@@ -193,6 +195,15 @@ class Runner {
   clearError() {
     this.failures = 0;
     this.set({ lastError: null, state: 'pending' });
+  }
+}
+
+export const VIEWER_FLAG = 'bem-viewer';
+export function isViewerFlag() {
+  try {
+    return localStorage.getItem(VIEWER_FLAG) === '1';
+  } catch {
+    return false;
   }
 }
 

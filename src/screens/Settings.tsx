@@ -12,6 +12,7 @@ import { listSnapshots, maybeSnapshot, restoreSnapshot, snapshotDate } from '../
 import { unsavedPhotoIds } from '../devicePhotos';
 import { openSaveToPhotos } from '../ui/saveSheet';
 import { backupToFiles, excelToFiles } from '../ui/safety';
+import { addViewer, listViewers, removeViewer, type ViewerEntry } from '../viewer/api';
 
 export function More() {
   const items: [string, string, string][] = [
@@ -283,6 +284,92 @@ function BackupSection() {
   );
 }
 
+function ViewersSection() {
+  const st = useSyncStatus();
+  const [list, setList] = useState<ViewerEntry[] | null>(null);
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const signedIn = !!st.email && st.state !== 'signed_out' && st.state !== 'local_only';
+  const client = syncRunner.remote?.client;
+  const load = async () => {
+    if (!client) return;
+    try {
+      setList(await listViewers(client));
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    if (signedIn && navigator.onLine) void load();
+  }, [signedIn]);
+  if (!signedIn || !client) return null;
+  return (
+    <Section title="View-only access (share with someone)">
+      <div className="small">
+        Give another person a <b>read-only</b> view of your exhibition data. They see company names, bearing types, hall/booth, photos, contacts, your rating and notes — <b>never</b> prices/products or factory addresses — and they cannot add, change, delete, back up, export or save photos. The server enforces this. Photos are watermarked with their email. Screenshots can't be blocked by any app.
+      </div>
+      <details className="small">
+        <summary><b>How to add someone</b></summary>
+        <ol>
+          <li>Supabase → Authentication → Users → <b>Add user</b> → Create new user: their email + a password you choose, tick <b>Auto Confirm User</b>.</li>
+          <li>Enter that email below and tap <b>Give view-only access</b>.</li>
+          <li>Send them the app link and their email + password. On their iPhone: Safari → Add to Home Screen → Settings → Sign in. The app opens in view-only mode.</li>
+        </ol>
+      </details>
+      <div className="row">
+        <Field className="grow" label="Their email" type="email" inputMode="email" value={email} onChange={setEmail} name="viewerEmail" />
+        <button
+          className="btn btn-primary"
+          disabled={busy || !email.includes('@') || !navigator.onLine}
+          data-testid="add-viewer"
+          onClick={async () => {
+            setBusy(true);
+            setMsg(null);
+            try {
+              await addViewer(client, email.trim());
+              setEmail('');
+              toast('View-only access given');
+              await load();
+            } catch (e) {
+              setMsg((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Give view-only access
+        </button>
+      </div>
+      {msg && <div className="small err">{msg}</div>}
+      {list && !list.length && <div className="small muted">Nobody has view-only access.</div>}
+      {list?.map((v) => (
+        <div key={v.viewer_id} className="list-item" data-testid="viewer-entry">
+          <div className="grow">
+            <div className="li-title">👁 {v.viewer_email}</div>
+            <div className="small muted">since {fmtDateTime(v.created_at)}</div>
+          </div>
+          <button
+            className="btn btn-sm btn-danger-outline"
+            onClick={async () => {
+              if (!confirm(`Remove view-only access for ${v.viewer_email}? They will immediately see nothing.`)) return;
+              try {
+                await removeViewer(client, v.viewer_id);
+                toast('Access removed');
+                await load();
+              } catch (e) {
+                setMsg((e as Error).message);
+              }
+            }}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 function SnapshotSection() {
   const st = useSyncStatus();
   const [list, setList] = useState<{ name: string; size: number | null }[] | null>(null);
@@ -494,6 +581,7 @@ export function Settings() {
       <Header title="Settings" backTo="/more" />
       <SyncCard />
       <CloudSection />
+      <ViewersSection />
       <SnapshotSection />
       <BackupSection />
       <PhotosSection />

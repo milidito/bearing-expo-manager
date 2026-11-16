@@ -17,8 +17,13 @@ Built from the same codebase as [Yiwu Supplier Manager](https://github.com/milid
 - Products & quotes, price comparison (same currency + unit only).
 - Same safety net as the Yiwu app: cloud sync, daily cloud snapshots, Trash, backup .zip (iCloud Drive), Excel with photos in each company's row, Save to Photos with burned-in ID labels, new-phone restore by Sign in.
 
+## View-only sharing
+Settings → **View-only access**: give another account read-only access. The server only returns company, brand, bearing types, hall/booth, photos, contacts, rating and notes (never prices/products, main-products text, factory address/visit list, status or backups) through `expo_shared_companies()` / `expo_shared_photos()`; viewer accounts cannot write anywhere (all write policies exclude them, including the Yiwu tables). The viewer's app switches to a view-only mode: online only (nothing stored on the phone), no add/edit/delete/backup/export/Save to Photos, no text selection/copy, photos drawn on canvas with the viewer's email as watermark. Screenshots cannot be blocked on iPhone; the watermark makes leaks traceable. Remove access any time (instant).
+
+To add someone: Supabase → Authentication → Users → Add user (Auto Confirm) → then enter the email in the app.
+
 ## Cloud setup (once)
-Run `supabase/schema-expo.sql` in the existing Supabase project (SQL Editor → New query → Run; choose “Run and enable RLS” if asked). It only adds `expo_*` tables, RLS policies and the `expo-photos` bucket; the Yiwu tables are not touched. Sign in in the app with the same account as the Yiwu app.
+Run `supabase/schema-expo.sql` in the existing Supabase project (SQL Editor → New query → Run; choose “Run and enable RLS” if asked). It adds the `expo_*` tables, the view-only sharing table/functions, RLS policies and the `expo-photos` bucket. Yiwu data is not touched (its write policies get an extra rule that blocks view-only accounts). If you ever re-run the Yiwu `schema.sql`, run `schema-expo.sql` again afterwards. Sign in in the app with the same account as the Yiwu app.
 
 ## Develop / test
 ```bash

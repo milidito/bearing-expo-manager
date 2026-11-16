@@ -20,4 +20,4 @@ alter table storage.objects enable row level security;
 create or replace function storage.foldername(name text) returns text[] language sql immutable as $$
   select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1]
 $$;
-insert into auth.users values ('aaaaaaaa-0000-4000-8000-000000000001','milad@example.com'),('bbbbbbbb-0000-4000-8000-000000000002','other@example.com') on conflict do nothing;
+insert into auth.users values ('aaaaaaaa-0000-4000-8000-000000000001','milad@example.com'),('bbbbbbbb-0000-4000-8000-000000000002','other@example.com'),('cccccccc-0000-4000-8000-000000000003','viewer@example.com') on conflict do nothing;
