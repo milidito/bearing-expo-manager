@@ -12,7 +12,7 @@ import { listSnapshots, maybeSnapshot, restoreSnapshot, snapshotDate } from '../
 import { unsavedPhotoIds } from '../devicePhotos';
 import { openSaveToPhotos } from '../ui/saveSheet';
 import { backupToFiles, excelToFiles } from '../ui/safety';
-import { addViewer, listViewers, removeViewer, type ViewerEntry } from '../viewer/api';
+import { addViewer, listViewers, removeViewer, setViewerWatermark, type ViewerEntry } from '../viewer/api';
 
 export function More() {
   const items: [string, string, string][] = [
@@ -288,6 +288,7 @@ function ViewersSection() {
   const st = useSyncStatus();
   const [list, setList] = useState<ViewerEntry[] | null>(null);
   const [email, setEmail] = useState('');
+  const [mark, setMark] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const signedIn = !!st.email && st.state !== 'signed_out' && st.state !== 'local_only';
@@ -307,18 +308,19 @@ function ViewersSection() {
   return (
     <Section title="View-only access (share with someone)">
       <div className="small">
-        Give another person a <b>read-only</b> view of your exhibition data. They see company names, bearing types, hall/booth, photos, contacts, your rating and notes — <b>never</b> prices/products or factory addresses — and they cannot add, change, delete, back up, export or save photos. The server enforces this. Photos are watermarked with their email. Screenshots can't be blocked by any app.
+        Give another person a <b>read-only</b> view of your exhibition data. They see company names, bearing types, hall/booth, photos, contacts, your rating and notes — <b>never</b> prices/products or factory addresses — and they cannot add, change, delete, back up, export or save photos. The server enforces this. Every photo they see carries the watermark text you choose (e.g. their name and phone number), so a leaked screenshot shows where it came from. Screenshots can't be blocked by any app.
       </div>
       <details className="small">
         <summary><b>How to add someone</b></summary>
         <ol>
           <li>Supabase → Authentication → Users → <b>Add user</b> → Create new user: their email + a password you choose, tick <b>Auto Confirm User</b>.</li>
-          <li>Enter that email below and tap <b>Give view-only access</b>.</li>
+          <li>Enter that email and the watermark text (e.g. their name + phone) below and tap <b>Give view-only access</b>.</li>
           <li>Send them the app link and their email + password. On their iPhone: Safari → Add to Home Screen → Settings → Sign in. The app opens in view-only mode.</li>
         </ol>
       </details>
+      <Field label="Their email" type="email" inputMode="email" value={email} onChange={setEmail} name="viewerEmail" />
+      <Field label="Watermark text on photos" value={mark} onChange={setMark} name="viewerWatermark" placeholder="e.g. Mehrdad 09122381686" hint="Printed across every photo they see. If empty, their email is used." />
       <div className="row">
-        <Field className="grow" label="Their email" type="email" inputMode="email" value={email} onChange={setEmail} name="viewerEmail" />
         <button
           className="btn btn-primary"
           disabled={busy || !email.includes('@') || !navigator.onLine}
@@ -327,8 +329,9 @@ function ViewersSection() {
             setBusy(true);
             setMsg(null);
             try {
-              await addViewer(client, email.trim());
+              await addViewer(client, email.trim(), mark.trim());
               setEmail('');
+              setMark('');
               toast('View-only access given');
               await load();
             } catch (e) {
@@ -347,8 +350,25 @@ function ViewersSection() {
         <div key={v.viewer_id} className="list-item" data-testid="viewer-entry">
           <div className="grow">
             <div className="li-title">👁 {v.viewer_email}</div>
+            <div className="small">Watermark: <b data-testid="viewer-watermark">{v.watermark || v.viewer_email}</b></div>
             <div className="small muted">since {fmtDateTime(v.created_at)}</div>
           </div>
+          <button
+            className="btn btn-sm"
+            onClick={async () => {
+              const t = prompt('Watermark text on their photos:', v.watermark);
+              if (t === null) return;
+              try {
+                await setViewerWatermark(client, v.viewer_id, t);
+                toast('Watermark updated');
+                await load();
+              } catch (e) {
+                setMsg((e as Error).message);
+              }
+            }}
+          >
+            Edit
+          </button>
           <button
             className="btn btn-sm btn-danger-outline"
             onClick={async () => {

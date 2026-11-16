@@ -22,8 +22,12 @@ insert into storage.objects (bucket_id, name) values
   ('expo-photos','aaaaaaaa-0000-4000-8000-000000000001/44444444-0000-4000-8000-000000000002.jpg'),
   ('expo-photos','aaaaaaaa-0000-4000-8000-000000000001/backups/2026-12-10.zip');
 -- sharing before adding: viewer is not yet a viewer
-select public.expo_add_viewer('viewer@example.com');
+select public.expo_add_viewer('viewer@example.com', 'Mehrdad 09122381686');
 do $$ begin
+  if (select watermark from public.expo_viewers) <> 'Mehrdad 09122381686' then raise exception 'FAIL: watermark not stored'; end if;
+  perform public.expo_set_viewer_watermark('cccccccc-0000-4000-8000-000000000003', '  Mehrdad 0912 ');
+  if (select watermark from public.expo_viewers) <> 'Mehrdad 0912' then raise exception 'FAIL: owner could not edit watermark'; end if;
+  perform public.expo_set_viewer_watermark('cccccccc-0000-4000-8000-000000000003', 'Mehrdad 09122381686');
   if (select count(*) from public.expo_viewers) <> 1 then raise exception 'FAIL: owner should see 1 viewer'; end if;
   if (select count(*) from public.expo_shared_companies()) <> 0 then raise exception 'FAIL: owner is not a viewer of anyone'; end if;
   begin perform public.expo_add_viewer('nobody@example.com'); raise exception 'FAIL: unknown email accepted';
@@ -39,6 +43,12 @@ do $$
 declare n int; r record;
 begin
   if not public.expo_is_viewer() then raise exception 'FAIL: viewer not detected'; end if;
+  -- viewer reads its own watermark but cannot change it
+  if (select watermark from public.expo_viewers where viewer_id = 'cccccccc-0000-4000-8000-000000000003') <> 'Mehrdad 09122381686' then raise exception 'FAIL: viewer cannot read its watermark'; end if;
+  perform public.expo_set_viewer_watermark('cccccccc-0000-4000-8000-000000000003', 'removed');
+  begin update public.expo_viewers set watermark = 'removed';
+    get diagnostics n = row_count; if n <> 0 then raise exception 'FAIL: viewer could edit expo_viewers'; end if;
+  exception when insufficient_privilege then null; end;
   -- no direct table access at all
   if (select count(*) from public.expo_suppliers) <> 0 then raise exception 'FAIL: viewer can read expo_suppliers table'; end if;
   if (select count(*) from public.expo_quotations) <> 0 then raise exception 'FAIL: viewer can read prices'; end if;
@@ -75,6 +85,12 @@ begin
   begin perform public.expo_add_viewer('other@example.com'); raise exception 'FAIL: viewer could share';
   exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
   perform public.expo_remove_viewer('cccccccc-0000-4000-8000-000000000003'); -- viewer can't remove anything (not owner)
+end $$;
+
+-- watermark unchanged by the viewer's attempts
+select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000001","role":"authenticated"}', false);
+do $$ begin
+  if (select watermark from public.expo_viewers) <> 'Mehrdad 09122381686' then raise exception 'FAIL: viewer changed the watermark'; end if;
 end $$;
 
 -- ===== stranger B sees nothing =====

@@ -85,8 +85,10 @@ test('view-only access: viewer sees allowed fields only, watermarked photos, can
 
   await page.goto('./#/settings');
   await page.locator('[name="viewerEmail"]').fill('viewer@example.com');
+  await page.locator('[name="viewerWatermark"]').fill('Mehrdad 09122381686');
   await page.getByTestId('add-viewer').click();
   await expect(page.getByTestId('viewer-entry')).toContainText('viewer@example.com');
+  await expect(page.getByTestId('viewer-watermark')).toHaveText('Mehrdad 09122381686');
 
   // ---- viewer on another phone ----
   const ctx = await browser.newContext();
@@ -107,6 +109,7 @@ test('view-only access: viewer sees allowed fields only, watermarked photos, can
   expect(text).not.toContain('22210');
   // photo drawn on a canvas (no <img> to long-press-save), watermark painted
   await expect(v.locator('.v-photo.ok canvas')).toHaveCount(1, { timeout: 15000 });
+  await expect(v.locator('.v-photo.ok canvas')).toHaveAttribute('data-mark', 'Mehrdad 09122381686');
   expect(await v.locator('img').count()).toBe(0);
   // no copy / select / export
   expect(await v.evaluate(() => getComputedStyle(document.body).userSelect || getComputedStyle(document.body).webkitUserSelect)).toBe('none');

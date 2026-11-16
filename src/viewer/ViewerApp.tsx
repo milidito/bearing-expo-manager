@@ -4,7 +4,7 @@ import { BEARING_TYPES, PHOTO_KIND_LABELS, type PhotoKind } from '../db';
 import { norm } from '../logic';
 import { Stars } from '../ui/components';
 import { useOnline } from '../ui/hooks';
-import { downloadSharedPhoto, fetchShared, type SharedCompany, type SharedPhoto } from './api';
+import { downloadSharedPhoto, fetchShared, myWatermark, type SharedCompany, type SharedPhoto } from './api';
 
 /**
  * View-only app for accounts the owner shared the expo data with.
@@ -113,7 +113,7 @@ function WatermarkedPhoto(props: { client: SupabaseClient; photo: SharedPhoto; m
   }, [visible, props.photo.id, props.maxW, props.maxH, props.mark]);
   return (
     <div className={`v-photo ${state}`} onClick={props.onClick} style={{ minWidth: props.maxW > 200 ? undefined : props.maxW, minHeight: Math.min(props.maxH, 120) }}>
-      <canvas ref={ref} data-testid="viewer-canvas" aria-label="Photo" />
+      <canvas ref={ref} data-testid="viewer-canvas" data-mark={props.mark} aria-label="Photo" />
       {state !== 'ok' && <span className="v-photo-msg">{state === 'err' ? 'Photo not available' : '…'}</span>}
     </div>
   );
@@ -135,11 +135,13 @@ export function ViewerApp(props: { client: SupabaseClient; email: string; onSign
   const [sort, setSort] = useState<'code' | 'hall'>('code');
   const [openId, setOpenId] = useState<string | null>(null);
   const [full, setFull] = useState<SharedPhoto | null>(null);
-  const mark = `${props.email} · view only`;
+  const [label, setLabel] = useState('');
+  const mark = label || `${props.email} · view only`;
 
   const load = useCallback(async () => {
     setError(null);
     try {
+      setLabel(await myWatermark(props.client));
       setData(await fetchShared(props.client));
     } catch (e) {
       setError((e as Error).message);
@@ -338,7 +340,7 @@ export function ViewerApp(props: { client: SupabaseClient; email: string; onSign
 
         <section className="card">
           <div className="small muted">
-            Signed in as <b>{props.email}</b> with view-only access. This screen cannot change any data. Photos are watermarked with your email.
+            Signed in as <b>{props.email}</b> with view-only access. This screen cannot change any data. Photos are watermarked.
           </div>
           <button className="btn btn-outline" onClick={props.onSignOut} data-testid="viewer-signout">
             Sign out

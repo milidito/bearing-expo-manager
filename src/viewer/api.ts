@@ -40,7 +40,16 @@ export interface SharedPhoto {
 export interface ViewerEntry {
   viewer_id: string;
   viewer_email: string;
+  watermark: string;
   created_at: string;
+}
+
+/** The watermark text the owner chose for this viewer (falls back to the email). */
+export async function myWatermark(client: SupabaseClient): Promise<string> {
+  const uid = await currentUserId(client);
+  if (!uid) return '';
+  const { data } = await client.from('expo_viewers').select('watermark').eq('viewer_id', uid).limit(1);
+  return ((data ?? [])[0] as { watermark?: string } | undefined)?.watermark?.trim() ?? '';
 }
 
 export async function currentUserId(client: SupabaseClient): Promise<string | null> {
@@ -74,13 +83,18 @@ export async function downloadSharedPhoto(client: SupabaseClient, ownerId: strin
 export async function listViewers(client: SupabaseClient): Promise<ViewerEntry[]> {
   const uid = await currentUserId(client);
   if (!uid) return [];
-  const { data, error } = await client.from('expo_viewers').select('viewer_id, viewer_email, created_at').eq('owner_id', uid).order('created_at');
+  const { data, error } = await client.from('expo_viewers').select('viewer_id, viewer_email, watermark, created_at').eq('owner_id', uid).order('created_at');
   if (error) throw new Error(error.message);
   return (data ?? []) as ViewerEntry[];
 }
 
-export async function addViewer(client: SupabaseClient, email: string) {
-  const { error } = await client.rpc('expo_add_viewer', { p_email: email });
+export async function addViewer(client: SupabaseClient, email: string, watermark: string) {
+  const { error } = await client.rpc('expo_add_viewer', { p_email: email, p_watermark: watermark });
+  if (error) throw new Error(error.message);
+}
+
+export async function setViewerWatermark(client: SupabaseClient, viewerId: string, watermark: string) {
+  const { error } = await client.rpc('expo_set_viewer_watermark', { p_viewer: viewerId, p_watermark: watermark });
   if (error) throw new Error(error.message);
 }
 

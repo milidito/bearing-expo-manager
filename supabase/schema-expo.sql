@@ -117,6 +117,8 @@ create table if not exists public.expo_viewers (
   primary key (owner_id, viewer_id),
   check (owner_id <> viewer_id)
 );
+-- text the owner chooses to print over every photo the viewer sees (e.g. "Mehrdad 09122381686")
+alter table public.expo_viewers add column if not exists watermark text not null default '';
 alter table public.expo_viewers enable row level security;
 drop policy if exists "owner or viewer reads" on public.expo_viewers;
 create policy "owner or viewer reads" on public.expo_viewers for select to authenticated
@@ -201,7 +203,8 @@ language sql stable security definer set search_path = '' as $$
   )
 $$;
 
-create or replace function public.expo_add_viewer(p_email text) returns uuid
+drop function if exists public.expo_add_viewer(text);
+create or replace function public.expo_add_viewer(p_email text, p_watermark text default '') returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare v uuid;
 begin
@@ -215,11 +218,18 @@ begin
   if exists (select 1 from public.expo_suppliers where user_id = v) then
     raise exception 'This account has its own data. Use a separate account only for viewing.';
   end if;
-  insert into public.expo_viewers (owner_id, viewer_id, viewer_email)
-  values (auth.uid(), v, lower(trim(p_email)))
-  on conflict (owner_id, viewer_id) do nothing;
+  insert into public.expo_viewers (owner_id, viewer_id, viewer_email, watermark)
+  values (auth.uid(), v, lower(trim(p_email)), left(trim(coalesce(p_watermark, '')), 80))
+  on conflict (owner_id, viewer_id) do update set watermark = excluded.watermark;
   return v;
 end $$;
+
+-- only the owner can change the watermark text (viewers have no write access to expo_viewers)
+create or replace function public.expo_set_viewer_watermark(p_viewer uuid, p_watermark text) returns void
+language sql security definer set search_path = '' as $$
+  update public.expo_viewers set watermark = left(trim(coalesce(p_watermark, '')), 80)
+  where owner_id = auth.uid() and viewer_id = p_viewer
+$$;
 
 create or replace function public.expo_remove_viewer(p_viewer uuid) returns void
 language sql security definer set search_path = '' as $$
@@ -229,7 +239,7 @@ $$;
 do $$
 declare f text;
 begin
-  foreach f in array array['expo_is_viewer()','expo_shared_companies()','expo_shared_photos()','expo_viewer_can_read(text)','expo_add_viewer(text)','expo_remove_viewer(uuid)'] loop
+  foreach f in array array['expo_is_viewer()','expo_shared_companies()','expo_shared_photos()','expo_viewer_can_read(text)','expo_add_viewer(text, text)','expo_set_viewer_watermark(uuid, text)','expo_remove_viewer(uuid)'] loop
     execute format('revoke all on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated', f);
   end loop;
