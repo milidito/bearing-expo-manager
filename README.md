@@ -34,3 +34,7 @@ CHROME_PATH=/usr/bin/google-chrome npm run test:e2e
 POSTGREST_BIN=/path/to/postgrest RUN_E2E=1 npm run test:integration   # real Postgres + PostgREST + RLS
 ```
 See `docs/` for the shared architecture notes (cloud setup, deploy, testing) inherited from the Yiwu app.
+
+
+### One-device lock (v1.3.0)
+Each view-only account locks to the first phone that signs in (server checks the sign-in session). The same email + password on any other device gets no data or photos until the owner taps **Unlock** in Settings → View-only access. Viewers have no Sign out button.

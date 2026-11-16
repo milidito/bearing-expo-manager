@@ -149,6 +149,37 @@ test('view-only access: viewer sees allowed fields only, watermarked photos, can
   });
   expect(write).toBeGreaterThanOrEqual(400);
 
+  // ---- same email + password on ANOTHER phone: refused (account is locked to the first phone) ----
+  await page.goto('./#/suppliers');
+  await page.goto('./#/settings');
+  await expect(page.getByTestId('viewer-lock')).toContainText('Locked to their phone');
+  const ctx2 = await browser.newContext();
+  const v2 = await ctx2.newPage();
+  await signIn(v2, 'viewer@example.com', 'pass-viewer-123');
+  await expect(v2.getByTestId('viewer-locked')).toBeVisible({ timeout: 15000 });
+  await expect(v2.getByTestId('viewer-row')).toHaveCount(0);
+  expect(await v2.evaluate(() => document.body.innerText)).not.toContain('Viewer Test Bearing Co');
+  await v2.screenshot({ path: 'test-results/screens/21-viewer-locked.png', fullPage: true });
+  // first phone: no Sign out button (signing out would lose the lock)
+  await expect(v.getByTestId('viewer-signout')).toHaveCount(0);
+  // owner unlocks -> the new phone takes over, the old one is locked out
+  page.once('dialog', (d) => d.accept());
+  await page.getByTestId('viewer-unlock').click();
+  await expect(page.getByTestId('viewer-lock')).toContainText('Not used yet');
+  await v2.getByRole('button', { name: 'Try again' }).click();
+  await expect(v2.getByTestId('viewer-row').filter({ hasText: 'Viewer Test Bearing Co' })).toHaveCount(1, { timeout: 15000 });
+  await v.reload();
+  await expect(v.getByTestId('viewer-locked')).toBeVisible({ timeout: 15000 });
+  await ctx2.close();
+  // hand the lock back to the first phone for the rest of the test
+  await page.goto('./#/suppliers');
+  await page.goto('./#/settings');
+  page.once('dialog', (d) => d.accept());
+  await page.getByTestId('viewer-unlock').click();
+  await expect(page.getByTestId('viewer-lock')).toContainText('Not used yet');
+  await v.reload();
+  await expect(v.getByTestId('viewer-row').filter({ hasText: 'Viewer Test Bearing Co' })).toHaveCount(1, { timeout: 15000 });
+
   // online only: offline launch shows the notice, no data
   await v.evaluate(async () => {
     await navigator.serviceWorker.ready;

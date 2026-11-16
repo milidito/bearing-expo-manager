@@ -119,6 +119,10 @@ create table if not exists public.expo_viewers (
 );
 -- text the owner chooses to print over every photo the viewer sees (e.g. "Mehrdad 09122381686")
 alter table public.expo_viewers add column if not exists watermark text not null default '';
+-- one-device lock: the sign-in session (JWT "session_id") of the first device the viewer used.
+-- Any other device signing in with the same email + password gets nothing until the owner unlocks.
+alter table public.expo_viewers add column if not exists locked_session uuid;
+alter table public.expo_viewers add column if not exists locked_at timestamptz;
 alter table public.expo_viewers enable row level security;
 drop policy if exists "owner or viewer reads" on public.expo_viewers;
 create policy "owner or viewer reads" on public.expo_viewers for select to authenticated
@@ -127,6 +131,12 @@ create policy "owner or viewer reads" on public.expo_viewers for select to authe
 revoke all on public.expo_viewers from anon;
 revoke insert, update, delete on public.expo_viewers from authenticated;
 grant select on public.expo_viewers to authenticated;
+
+-- the sign-in session of the current request (stays the same across token refreshes on one device)
+create or replace function public.expo_sid() returns uuid
+language sql stable set search_path = '' as $$
+  select nullif(coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::json->>'session_id', '')::uuid
+$$;
 
 create or replace function public.expo_is_viewer() returns boolean
 language sql stable security definer set search_path = '' as $$
@@ -174,7 +184,7 @@ language sql stable security definer set search_path = '' as $$
          s.contact_person, s.wechat_id, s.whatsapp, s.phone, s.email, s.website,
          s.rating, s.notes, s.updated_at
   from public.expo_suppliers s
-  join public.expo_viewers v on v.owner_id = s.user_id and v.viewer_id = auth.uid()
+  join public.expo_viewers v on v.owner_id = s.user_id and v.viewer_id = auth.uid() and v.locked_session = public.expo_sid()
   where not s.deleted
   order by s.code
 $$;
@@ -185,7 +195,7 @@ language sql stable security definer set search_path = '' as $$
   select p.id, p.user_id, p.supplier_id, p.kind, p.width, p.height, p.created_at
   from public.expo_photos p
   join public.expo_suppliers s on s.id = p.supplier_id and s.user_id = p.user_id
-  join public.expo_viewers v on v.owner_id = p.user_id and v.viewer_id = auth.uid()
+  join public.expo_viewers v on v.owner_id = p.user_id and v.viewer_id = auth.uid() and v.locked_session = public.expo_sid()
   where not p.deleted and not s.deleted
   order by p.created_at
 $$;
@@ -197,10 +207,30 @@ language sql stable security definer set search_path = '' as $$
     select 1
     from public.expo_photos p
     join public.expo_suppliers s on s.id = p.supplier_id and s.user_id = p.user_id
-    join public.expo_viewers v on v.owner_id = p.user_id and v.viewer_id = auth.uid()
+    join public.expo_viewers v on v.owner_id = p.user_id and v.viewer_id = auth.uid() and v.locked_session = public.expo_sid()
     where not p.deleted and not s.deleted
       and object_name = p.user_id::text || '/' || p.id::text || '.jpg'
   )
+$$;
+
+-- viewer app calls this after signing in: locks the account to this device on first use
+create or replace function public.expo_viewer_claim() returns text
+language plpgsql volatile security definer set search_path = '' as $$
+declare sid uuid := public.expo_sid();
+begin
+  if auth.uid() is null or not exists (select 1 from public.expo_viewers where viewer_id = auth.uid()) then return 'not_viewer'; end if;
+  if sid is null then return 'no_session'; end if;
+  update public.expo_viewers set locked_session = sid, locked_at = now()
+  where viewer_id = auth.uid() and locked_session is null;
+  if exists (select 1 from public.expo_viewers where viewer_id = auth.uid() and locked_session is distinct from sid) then return 'locked'; end if;
+  return 'ok';
+end $$;
+
+-- owner only: release the lock (e.g. the viewer got a new phone); the next device to open the app takes it
+create or replace function public.expo_unlock_viewer(p_viewer uuid) returns void
+language sql security definer set search_path = '' as $$
+  update public.expo_viewers set locked_session = null, locked_at = null
+  where owner_id = auth.uid() and viewer_id = p_viewer
 $$;
 
 drop function if exists public.expo_add_viewer(text);
@@ -239,10 +269,11 @@ $$;
 do $$
 declare f text;
 begin
-  foreach f in array array['expo_is_viewer()','expo_shared_companies()','expo_shared_photos()','expo_viewer_can_read(text)','expo_add_viewer(text, text)','expo_set_viewer_watermark(uuid, text)','expo_remove_viewer(uuid)'] loop
+  foreach f in array array['expo_is_viewer()','expo_shared_companies()','expo_shared_photos()','expo_viewer_can_read(text)','expo_add_viewer(text, text)','expo_set_viewer_watermark(uuid, text)','expo_viewer_claim()','expo_unlock_viewer(uuid)','expo_remove_viewer(uuid)'] loop
     execute format('revoke all on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated', f);
   end loop;
+  revoke all on function public.expo_sid() from public, anon;
 end $$;
 
 -- ---------- private photo bucket: <user_id>/<photo_id>.jpg and <user_id>/backups/<time>.zip ----------

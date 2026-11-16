@@ -38,11 +38,16 @@ do $$ begin
 end $$;
 
 -- ===== viewer V =====
-select set_config('request.jwt.claims', '{"sub":"cccccccc-0000-4000-8000-000000000003","role":"authenticated"}', false);
+select set_config('request.jwt.claims', '{"sub":"cccccccc-0000-4000-8000-000000000003","role":"authenticated","session_id":"dddddddd-0000-4000-8000-000000000001"}', false);
 do $$
 declare n int; r record;
 begin
   if not public.expo_is_viewer() then raise exception 'FAIL: viewer not detected'; end if;
+  -- before claiming the device: nothing visible
+  if (select count(*) from public.expo_shared_companies()) <> 0 then raise exception 'FAIL: data visible before device claim'; end if;
+  if (select count(*) from storage.objects where bucket_id = 'expo-photos') <> 0 then raise exception 'FAIL: photos visible before device claim'; end if;
+  if public.expo_viewer_claim() <> 'ok' then raise exception 'FAIL: first device could not claim'; end if;
+  if public.expo_viewer_claim() <> 'ok' then raise exception 'FAIL: same device re-claim failed'; end if;
   -- viewer reads its own watermark but cannot change it
   if (select watermark from public.expo_viewers where viewer_id = 'cccccccc-0000-4000-8000-000000000003') <> 'Mehrdad 09122381686' then raise exception 'FAIL: viewer cannot read its watermark'; end if;
   perform public.expo_set_viewer_watermark('cccccccc-0000-4000-8000-000000000003', 'removed');
@@ -85,6 +90,40 @@ begin
   begin perform public.expo_add_viewer('other@example.com'); raise exception 'FAIL: viewer could share';
   exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
   perform public.expo_remove_viewer('cccccccc-0000-4000-8000-000000000003'); -- viewer can't remove anything (not owner)
+end $$;
+
+-- ===== same viewer email + password on a SECOND device (another session) =====
+select set_config('request.jwt.claims', '{"sub":"cccccccc-0000-4000-8000-000000000003","role":"authenticated","session_id":"dddddddd-0000-4000-8000-000000000002"}', false);
+do $$ begin
+  if public.expo_viewer_claim() <> 'locked' then raise exception 'FAIL: second device was not refused'; end if;
+  if (select count(*) from public.expo_shared_companies()) <> 0 then raise exception 'FAIL: second device sees companies'; end if;
+  if (select count(*) from public.expo_shared_photos()) <> 0 then raise exception 'FAIL: second device sees photo list'; end if;
+  if (select count(*) from storage.objects where bucket_id = 'expo-photos') <> 0 then raise exception 'FAIL: second device can download photos'; end if;
+  perform public.expo_unlock_viewer('cccccccc-0000-4000-8000-000000000003'); -- viewer cannot unlock itself
+  if public.expo_viewer_claim() <> 'locked' then raise exception 'FAIL: viewer unlocked itself'; end if;
+end $$;
+-- a token without a session id gets nothing
+select set_config('request.jwt.claims', '{"sub":"cccccccc-0000-4000-8000-000000000003","role":"authenticated"}', false);
+do $$ begin
+  if public.expo_viewer_claim() <> 'no_session' then raise exception 'FAIL: claim without session'; end if;
+  if (select count(*) from public.expo_shared_companies()) <> 0 then raise exception 'FAIL: no-session token sees data'; end if;
+end $$;
+-- owner unlocks -> the second device can take over, the first loses access
+select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000001","role":"authenticated"}', false);
+do $$ begin
+  if (select locked_session from public.expo_viewers) <> 'dddddddd-0000-4000-8000-000000000001' then raise exception 'FAIL: lock not recorded'; end if;
+  perform public.expo_unlock_viewer('cccccccc-0000-4000-8000-000000000003');
+  if (select locked_session from public.expo_viewers) is not null then raise exception 'FAIL: owner could not unlock'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"cccccccc-0000-4000-8000-000000000003","role":"authenticated","session_id":"dddddddd-0000-4000-8000-000000000002"}', false);
+do $$ begin
+  if public.expo_viewer_claim() <> 'ok' then raise exception 'FAIL: new device could not claim after unlock'; end if;
+  if (select count(*) from public.expo_shared_companies()) <> 1 then raise exception 'FAIL: new device sees no data after unlock'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"cccccccc-0000-4000-8000-000000000003","role":"authenticated","session_id":"dddddddd-0000-4000-8000-000000000001"}', false);
+do $$ begin
+  if public.expo_viewer_claim() <> 'locked' then raise exception 'FAIL: old device still allowed after hand-over'; end if;
+  if (select count(*) from public.expo_shared_companies()) <> 0 then raise exception 'FAIL: old device still sees data'; end if;
 end $$;
 
 -- watermark unchanged by the viewer's attempts

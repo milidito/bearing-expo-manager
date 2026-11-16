@@ -41,7 +41,20 @@ export interface ViewerEntry {
   viewer_id: string;
   viewer_email: string;
   watermark: string;
+  locked_at: string | null;
   created_at: string;
+}
+
+/** Lock this account to this device on first use. 'locked' = already in use on another device. */
+export async function claimDevice(client: SupabaseClient): Promise<'ok' | 'locked' | 'not_viewer' | 'no_session'> {
+  const { data, error } = await client.rpc('expo_viewer_claim');
+  if (error) throw new Error(error.message);
+  return data as 'ok' | 'locked' | 'not_viewer' | 'no_session';
+}
+
+export async function unlockViewer(client: SupabaseClient, viewerId: string) {
+  const { error } = await client.rpc('expo_unlock_viewer', { p_viewer: viewerId });
+  if (error) throw new Error(error.message);
 }
 
 /** The watermark text the owner chose for this viewer (falls back to the email). */
@@ -83,7 +96,7 @@ export async function downloadSharedPhoto(client: SupabaseClient, ownerId: strin
 export async function listViewers(client: SupabaseClient): Promise<ViewerEntry[]> {
   const uid = await currentUserId(client);
   if (!uid) return [];
-  const { data, error } = await client.from('expo_viewers').select('viewer_id, viewer_email, watermark, created_at').eq('owner_id', uid).order('created_at');
+  const { data, error } = await client.from('expo_viewers').select('viewer_id, viewer_email, watermark, locked_at, created_at').eq('owner_id', uid).order('created_at');
   if (error) throw new Error(error.message);
   return (data ?? []) as ViewerEntry[];
 }

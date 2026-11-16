@@ -56,7 +56,7 @@ http.createServer(async (req, res) => {
       if (!u || u.pw !== b.password) return json(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials', msg: 'Invalid login credentials', code: 'invalid_credentials' });
       const exp = Math.floor(Date.now() / 1000) + 3600;
       const user = { id: u.id, aud: 'authenticated', role: 'authenticated', email: b.email, app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
-      return json(res, 200, { access_token: sign({ sub: u.id, role: 'authenticated', aud: 'authenticated', email: b.email, exp }), token_type: 'bearer', expires_in: 3600, expires_at: exp, refresh_token: 'r-' + u.id, user });
+      return json(res, 200, { access_token: sign({ sub: u.id, role: 'authenticated', aud: 'authenticated', email: b.email, exp, session_id: crypto.randomUUID() }), token_type: 'bearer', expires_in: 3600, expires_at: exp, refresh_token: 'r-' + u.id, user });
     }
     if (url.pathname === '/auth/v1/user') {
       const c = verify(req.headers.authorization);

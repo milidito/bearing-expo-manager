@@ -4,7 +4,7 @@ import { BEARING_TYPES, PHOTO_KIND_LABELS, type PhotoKind } from '../db';
 import { norm } from '../logic';
 import { Stars } from '../ui/components';
 import { useOnline } from '../ui/hooks';
-import { downloadSharedPhoto, fetchShared, myWatermark, type SharedCompany, type SharedPhoto } from './api';
+import { claimDevice, downloadSharedPhoto, fetchShared, myWatermark, type SharedCompany, type SharedPhoto } from './api';
 
 /**
  * View-only app for accounts the owner shared the expo data with.
@@ -136,11 +136,20 @@ export function ViewerApp(props: { client: SupabaseClient; email: string; onSign
   const [openId, setOpenId] = useState<string | null>(null);
   const [full, setFull] = useState<SharedPhoto | null>(null);
   const [label, setLabel] = useState('');
+  const [locked, setLocked] = useState(false);
   const mark = label || `${props.email} · view only`;
 
   const load = useCallback(async () => {
     setError(null);
     try {
+      const claim = await claimDevice(props.client);
+      if (claim === 'locked') {
+        setLocked(true);
+        setData(null);
+        return;
+      }
+      if (claim !== 'ok') throw new Error('This account is not set up for viewing (' + claim + '). Ask the owner.');
+      setLocked(false);
       setLabel(await myWatermark(props.client));
       setData(await fetchShared(props.client));
     } catch (e) {
@@ -219,6 +228,22 @@ export function ViewerApp(props: { client: SupabaseClient; email: string; onSign
             <div className="small">View-only access works online only — nothing is stored on this phone. Connect to the internet to see the companies.</div>
           </div>
         )}
+        {locked && online && (
+          <section className="card" data-testid="viewer-locked">
+            <h3>🔒 This account is locked to another device</h3>
+            <div className="small">
+              This view-only account can be used on one phone only, and it is already in use on another device. If you changed phones or reinstalled the app, ask the owner to unlock it in their Settings, then reopen this app.
+            </div>
+            <div className="row">
+              <button className="btn" onClick={() => void load()}>
+                Try again
+              </button>
+              <button className="btn btn-outline" onClick={props.onSignOut} data-testid="viewer-signout">
+                Sign out
+              </button>
+            </div>
+          </section>
+        )}
         {error && online && (
           <div className="card note-warn">
             <b>Could not load the shared data.</b>
@@ -228,7 +253,7 @@ export function ViewerApp(props: { client: SupabaseClient; email: string; onSign
             </button>
           </div>
         )}
-        {online && !data && !error && <div className="empty">Loading…</div>}
+        {online && !data && !error && !locked && <div className="empty">Loading…</div>}
 
         {data && !open && (
           <>
@@ -340,11 +365,8 @@ export function ViewerApp(props: { client: SupabaseClient; email: string; onSign
 
         <section className="card">
           <div className="small muted">
-            Signed in as <b>{props.email}</b> with view-only access. This screen cannot change any data. Photos are watermarked.
+            Signed in as <b>{props.email}</b> with view-only access on this phone only. This screen cannot change any data. Photos are watermarked.
           </div>
-          <button className="btn btn-outline" onClick={props.onSignOut} data-testid="viewer-signout">
-            Sign out
-          </button>
         </section>
       </main>
 
